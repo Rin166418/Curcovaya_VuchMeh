@@ -164,7 +164,7 @@ class PreprocessorApp:
         style.map("Treeview", background=[('selected', '#66b3ff')])
         style.configure("Treeview.Heading", font=("Arial", 10, "bold"), background=PASTEL_BUTTON, foreground="black")
 
-        # --- Вкладки ---
+        #Вкладки с табличками
         self.tree_nodes = ttk.Treeview(self.tab_control, columns=("X"), show='headings')
         self.tree_nodes.heading("X", text="X")
         self.tree_nodes.pack(expand=True, fill=tk.BOTH)
