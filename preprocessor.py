@@ -5,7 +5,6 @@ import json
 import tkinter
 print(tkinter.TkVersion)
 
-# --- Пастельные цвета ---
 PASTEL_BG = "#e6f0ff"
 PASTEL_BUTTON = "#99c2ff"
 PASTEL_HOVER = "#b3d1ff"
@@ -17,7 +16,7 @@ DEFAULT_A = 1.0
 DEFAULT_E = 1.0
 DEFAULT_SIGMA = 1.0
 
-# --- Функция для скругленного прямоугольника ---
+#Оформление
 def create_rounded_rect(canvas, x1, y1, x2, y2, radius=10, **kwargs):
     points = [
         x1+radius, y1,
@@ -32,7 +31,6 @@ def create_rounded_rect(canvas, x1, y1, x2, y2, radius=10, **kwargs):
     ]
     return canvas.create_polygon(points, smooth=True, **kwargs)
 
-# --- Класс для скругленной кнопки ---
 class RoundedButton(tk.Frame):
     def __init__(self, master, text, command=None, width=150, height=28):
         super().__init__(master, bg=PASTEL_BG)
@@ -50,7 +48,6 @@ class RoundedButton(tk.Frame):
         if self.command:
             self.command()
 
-# --- Основное приложение ---
 class PreprocessorApp:
     def __init__(self, root):
         self.root = root
@@ -58,7 +55,6 @@ class PreprocessorApp:
         self.root.geometry("1600x800")
         self.root.configure(bg=PASTEL_BG)
 
-        # --- Данные ---
         self.nodes = []             
         self.elements = []  
         self.supports = []   
@@ -69,7 +65,7 @@ class PreprocessorApp:
         self.create_ui()
         self.draw_system()
 
-    # --- UI ---
+    #Окно
     def create_ui(self):
         control_container = ttk.Frame(self.root)
         control_container.pack(side=tk.LEFT, fill=tk.Y)
@@ -85,7 +81,6 @@ class PreprocessorApp:
         canvas_ctrl.create_window((0,0), window=self.control_frame, anchor="nw")
         self.control_frame.bind("<Configure>", lambda e: canvas_ctrl.configure(scrollregion=canvas_ctrl.bbox("all")))
 
-        # --- Добавление узла ---
         tk.Label(self.control_frame, text="Добавление узла", font=("Arial",11,"bold"), bg=PASTEL_BG).pack(pady=5)
         tk.Label(self.control_frame, text="Координата X:", bg=PASTEL_BG).pack(anchor=tk.W)
         self.entry_node = ttk.Entry(self.control_frame,width=15)
@@ -93,7 +88,6 @@ class PreprocessorApp:
         RoundedButton(self.control_frame, "Добавить узел", self.add_node).pack(fill=tk.X, pady=2)
         RoundedButton(self.control_frame, "Удалить узел", self.delete_node).pack(fill=tk.X, pady=2)
 
-        # --- Добавление стержня ---
         tk.Label(self.control_frame, text="Добавление стержня", font=("Arial",11,"bold"), bg=PASTEL_BG).pack(pady=5)
         tk.Label(self.control_frame, text="Начальный узел n1:", bg=PASTEL_BG).pack(anchor=tk.W)
         self.combo_n1 = ttk.Combobox(self.control_frame, width=5, state='readonly')
@@ -113,7 +107,6 @@ class PreprocessorApp:
         RoundedButton(self.control_frame, "Добавить стержень", self.add_element).pack(fill=tk.X,pady=2)
         RoundedButton(self.control_frame, "Удалить стержень", self.delete_element).pack(fill=tk.X,pady=2)
 
-        # --- Распределённая нагрузка ---
         tk.Label(self.control_frame, text="Распределённая нагрузка q", font=("Arial",11,"bold"), bg=PASTEL_BG).pack(pady=5)
         tk.Label(self.control_frame, text="Выберите стержень:", bg=PASTEL_BG).pack(anchor=tk.W)
         self.combo_q_element = ttk.Combobox(self.control_frame, width=10, state='readonly')
@@ -124,7 +117,6 @@ class PreprocessorApp:
         RoundedButton(self.control_frame, "Добавить нагрузку q", self.add_q).pack(fill=tk.X,pady=2)
         RoundedButton(self.control_frame, "Удалить нагрузку q", self.delete_q).pack(fill=tk.X,pady=2)
 
-        # --- Опоры ---
         tk.Label(self.control_frame, text="Добавление опоры", font=("Arial",11,"bold"), bg=PASTEL_BG).pack(pady=5)
         tk.Label(self.control_frame, text="Выберите узел:", bg=PASTEL_BG).pack(anchor=tk.W)
         self.combo_support = ttk.Combobox(self.control_frame,width=5,state='readonly')
@@ -132,7 +124,6 @@ class PreprocessorApp:
         RoundedButton(self.control_frame, "Добавить опору", self.add_support).pack(fill=tk.X,pady=2)
         RoundedButton(self.control_frame, "Удалить опору", self.delete_support).pack(fill=tk.X,pady=2)
 
-        # --- Силы на узлах ---
         tk.Label(self.control_frame, text="Силы F на узлах", font=("Arial",11,"bold"), bg=PASTEL_BG).pack(pady=5)
         tk.Label(self.control_frame, text="Выберите узел:", bg=PASTEL_BG).pack(anchor=tk.W)
         self.combo_force_node = ttk.Combobox(self.control_frame,width=5,state='readonly')
@@ -143,7 +134,6 @@ class PreprocessorApp:
         RoundedButton(self.control_frame, "Добавить силу F", self.add_force).pack(fill=tk.X,pady=2)
         RoundedButton(self.control_frame, "Удалить силу F", self.delete_force).pack(fill=tk.X,pady=2)
 
-        # --- Управление проектом ---
         tk.Label(self.control_frame, text="Управление проектом", font=("Arial",11,"bold"), bg=PASTEL_BG).pack(pady=10)
         RoundedButton(self.control_frame, "Очистить всё", self.clear_all).pack(fill=tk.X,pady=2)
         RoundedButton(self.control_frame, "Масштаб +", lambda:self.scale_canvas(1.2)).pack(fill=tk.X,pady=2)
@@ -152,7 +142,6 @@ class PreprocessorApp:
         RoundedButton(self.control_frame, "Экспорт JSON", self.export_json).pack(fill=tk.X,pady=2)
         RoundedButton(self.control_frame, "Импорт JSON", self.import_json).pack(fill=tk.X,pady=2)
 
-        # --- Основное окно ---
         right_frame = ttk.Frame(self.root)
         right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
         self.canvas = tk.Canvas(right_frame, bg="white")
@@ -198,31 +187,24 @@ class PreprocessorApp:
         self.tab_control.add(self.tree_forces, text="Силы F")
 
 
-    # --- Обновление комбобоксов ---
+    #Обновление окошек с выбором
     def update_comboboxes(self):
-        if self.nodes:
-            node_str = [str(i+1) for i in range(len(self.nodes))]
-        else:
-            node_str = []
-        
-        # Узлы
+        node_str = [str(i+1) for i in range(len(self.nodes))] if self.nodes else []
         self.combo_n1['values'] = node_str
         self.combo_n2['values'] = node_str
         self.combo_support['values'] = node_str
         self.combo_force_node['values'] = node_str
 
-        # Стержни
         if self.elements:
-            sorted_with_index = sorted(enumerate(self.elements), key=lambda x: min(x[1]['nodes']))
-            self.sorted_elements_for_combo = sorted_with_index  # сохраняем для add_q
-            element_str = [f"{e['nodes'][0]}-{e['nodes'][1]}" for idx, e in sorted_with_index]
+            sorted_with_index = sorted(enumerate(self.elements), key=lambda x: min(self.nodes[x[1]['nodes'][0]-1], self.nodes[x[1]['nodes'][1]-1]))
+            self.sorted_elements_for_combo = sorted_with_index
+            element_str = [f"{e['nodes'][0]}-{e['nodes'][1]}" for idx,e in sorted_with_index]
         else:
             self.sorted_elements_for_combo = []
             element_str = []
-        
+
         self.combo_q_element['values'] = element_str
 
-        # Сброс выбора, если элементов нет
         self.combo_n1.set('')
         self.combo_n2.set('')
         self.combo_q_element.set('')
@@ -230,41 +212,37 @@ class PreprocessorApp:
         self.combo_force_node.set('')
 
 
-
-    # --- Обновление таблиц ---
+    #Обновление табличек
     def refresh_lists(self):
-        # Узлы
-        self.tree_nodes.delete(*self.tree_nodes.get_children())
-        sorted_nodes = sorted(self.nodes)
-        for i, x in enumerate(sorted_nodes, start=1):
-            self.tree_nodes.insert("", tk.END, values=(f"{x:.2f}",))
+            self.tree_nodes.delete(*self.tree_nodes.get_children())
+            for i,x in enumerate(sorted(self.nodes), start=1):
+                self.tree_nodes.insert("", tk.END, values=(f"{x:.2f}",))
 
-        # Стержни
-        self.tree_elements.delete(*self.tree_elements.get_children())
-        sorted_elements = sorted(self.elements, key=lambda e: min(e['nodes']))
-        for e in sorted_elements:
-            n1, n2 = e['nodes']
-            self.tree_elements.insert("", tk.END, values=(f"{n1}-{n2}", f"{e['L']:.2f}", f"{e['A']:.2f}", f"{e['E']:.2e}", f"{e['sigma']:.2e}"))
+            self.tree_elements.delete(*self.tree_elements.get_children())
+            sorted_elements = sorted(self.elements, key=lambda e: min(self.nodes[e['nodes'][0]-1], self.nodes[e['nodes'][1]-1]))
+            for e in sorted_elements:
+                n1,n2 = e['nodes']
+                self.tree_elements.insert("", tk.END, values=(f"{n1}-{n2}", f"{e['L']:.2f}", f"{e['A']:.2f}", f"{e['E']:.2e}", f"{e['sigma']:.2e}"))
 
-        # Нагрузки q
-        self.tree_q.delete(*self.tree_q.get_children())
-        sorted_q = sorted(self.element_forces, key=lambda x: min(self.elements[x[0]]['nodes']))
-        for idx, q_val in sorted_q:
-            e = self.elements[idx]
-            n1, n2 = e['nodes']
-            self.tree_q.insert("", tk.END, values=(f"{n1}-{n2}", f"{q_val:.2f}"))
+            self.tree_q.delete(*self.tree_q.get_children())
+            sorted_q = []
+            for idx, q_val in self.element_forces:
+                e = self.elements[idx]
+                sorted_q.append((min(self.nodes[e['nodes'][0]-1], self.nodes[e['nodes'][1]-1]), idx, q_val))
+            sorted_q.sort()
+            for _, idx, q_val in sorted_q:
+                e = self.elements[idx]
+                n1,n2 = e['nodes']
+                self.tree_q.insert("", tk.END, values=(f"{n1}-{n2}", f"{q_val:.2f}"))
 
-        # Опоры
-        self.tree_supports.delete(*self.tree_supports.get_children())
-        for n in sorted(self.supports):
-            self.tree_supports.insert("", tk.END, values=(n,))
+            self.tree_supports.delete(*self.tree_supports.get_children())
+            for n in sorted(self.supports):
+                self.tree_supports.insert("", tk.END, values=(n,))
 
-        # Силы
-        self.tree_forces.delete(*self.tree_forces.get_children())
-        for n, F in sorted(self.forces, key=lambda x: x[0]):
-            self.tree_forces.insert("", tk.END, values=(n, F))
-
-    # --- Добавление узла ---
+            self.tree_forces.delete(*self.tree_forces.get_children())
+            for n,F in sorted(self.forces, key=lambda x:x[0]):
+                self.tree_forces.insert("", tk.END, values=(n,F))
+    #Добавление
     def add_node(self):
         try: 
             x = float(self.entry_node.get())
@@ -281,7 +259,6 @@ class PreprocessorApp:
         self.refresh_lists()
         self.draw_system()
 
-    # --- Добавление стержня ---
     def add_element(self):
         try:
             n1 = int(self.combo_n1.get())
@@ -351,7 +328,6 @@ class PreprocessorApp:
         self.refresh_lists()
         self.draw_system()
 
-    # --- Добавление распределённой нагрузки q ---
     def add_q(self):
         try:
             combo_idx = self.combo_q_element.current()
@@ -383,17 +359,22 @@ class PreprocessorApp:
         self.refresh_lists()
         self.draw_system()
 
-
-    # --- Добавление опоры ---
     def add_support(self):
-        try: n = int(self.combo_support.get())
-        except: return
-        if n not in self.supports: self.supports.append(n)
+        try:
+            n = int(self.combo_support.get())
+        except:
+            messagebox.showerror("Ошибка","Выберите узел для опоры")
+            return
+
+        if n in self.supports:
+            messagebox.showerror("Ошибка", "На этом узле уже есть опора")
+            return
+
+        self.supports.append(n)
         self.combo_support.set('')
         self.refresh_lists()
         self.draw_system()
 
-    # --- Добавление силы ---
     def add_force(self):
         try:
             n = int(self.combo_force_node.get())
@@ -422,56 +403,84 @@ class PreprocessorApp:
         self.refresh_lists()
         self.draw_system()
 
-    # --- Удаление ---
+    #Удаление
     def delete_node(self):
         selected = self.tree_nodes.selection()
-        if not selected: messagebox.showwarning("Удаление","Выберите узел")
-        idx = self.tree_nodes.index(selected[0])
+        if not selected:
+            messagebox.showwarning("Удаление", "Выберите узел")
+            return
+
+        tree_idx = self.tree_nodes.index(selected[0])
+        sorted_nodes = sorted(self.nodes)
+        node_to_remove = sorted_nodes[tree_idx]
         for e in self.elements:
-            if idx+1 in e['nodes']:
-                messagebox.showerror("Ошибка","Нельзя удалить узел, входящий в стержень")
+            n1, n2 = e['nodes']
+            if self.nodes[n1-1] == node_to_remove or self.nodes[n2-1] == node_to_remove:
+                messagebox.showerror("Ошибка", "Нельзя удалить узел, входящий в стержень")
                 return
-        del self.nodes[idx]
+
+        self.nodes.remove(node_to_remove)
         self.update_comboboxes()
         self.refresh_lists()
         self.draw_system()
 
     def delete_element(self):
         selected = self.tree_elements.selection()
-        if not selected: messagebox.showwarning("Удаление","Выберите стержень")
+        if not selected:
+            messagebox.showwarning("Удаление","Выберите стержень")
+            return
         idx = self.tree_elements.index(selected[0])
-        del self.elements[idx]
-        self.element_forces = [(i,q) for i,q in self.element_forces if i!=idx]
-        self.element_forces = [(i-(1 if i>idx else 0),q) for i,q in self.element_forces]
+        sorted_elements = sorted(enumerate(self.elements), key=lambda x: min(self.nodes[x[1]['nodes'][0]-1], self.nodes[x[1]['nodes'][1]-1]))
+        real_idx, _ = sorted_elements[idx]
+        del self.elements[real_idx]
+        self.element_forces = [(i-(1 if i>real_idx else 0), q) for i,q in self.element_forces if i!=real_idx]
         self.update_comboboxes()
         self.refresh_lists()
         self.draw_system()
 
     def delete_q(self):
         selected = self.tree_q.selection()
-        if not selected: messagebox.showwarning("Удаление","Выберите нагрузку q")
+        if not selected:
+            messagebox.showwarning("Удаление","Выберите нагрузку q")
+            return
         idx = self.tree_q.index(selected[0])
-        del self.element_forces[idx]
+        sorted_q = sorted(self.element_forces, key=lambda x: min(self.nodes[self.elements[x[0]]['nodes'][0]-1], self.nodes[self.elements[x[0]]['nodes'][1]-1]))
+        real_idx = self.element_forces.index(sorted_q[idx])
+        del self.element_forces[real_idx]
         self.refresh_lists()
         self.draw_system()
 
     def delete_support(self):
         selected = self.tree_supports.selection()
-        if not selected: messagebox.showwarning("Удаление","Выберите опору")
-        idx = self.tree_supports.index(selected[0])
-        del self.supports[idx]
+        if not selected:
+            messagebox.showwarning("Удаление","Выберите опору")
+            return
+
+        tree_idx = self.tree_supports.index(selected[0])
+        sorted_supports = sorted(self.supports)
+        support_to_remove = sorted_supports[tree_idx]
+
+        self.supports.remove(support_to_remove)
         self.refresh_lists()
         self.draw_system()
 
     def delete_force(self):
         selected = self.tree_forces.selection()
-        if not selected: messagebox.showwarning("Удаление","Выберите силу")
-        idx = self.tree_forces.index(selected[0])
-        del self.forces[idx]
+        if not selected:
+            messagebox.showwarning("Удаление","Выберите силу")
+            return
+
+        tree_idx = self.tree_forces.index(selected[0])
+        sorted_forces = sorted(self.forces, key=lambda x: x[0])
+        force_to_remove = sorted_forces[tree_idx]
+
+        self.forces = [f for f in self.forces if f != force_to_remove]
+
         self.refresh_lists()
         self.draw_system()
 
-    # --- Очистка ---
+
+    #Очистить все
     def clear_all(self):
         if messagebox.askyesno("Подтверждение","Очистить всё?"):
             self.nodes.clear()
@@ -480,7 +489,6 @@ class PreprocessorApp:
             self.forces.clear()
             self.element_forces.clear()
 
-            # Сброс комбобоксов
             self.combo_n1.set('')
             self.combo_n2.set('')
             self.combo_q_element.set('')
@@ -492,7 +500,7 @@ class PreprocessorApp:
             self.canvas.delete("all")
 
 
-    # --- Масштабирование ---
+    #Масштаб
     def scale_canvas(self,factor):
         self.scale *= factor
         self.draw_system()
@@ -504,7 +512,7 @@ class PreprocessorApp:
     def on_mousewheel(self,event):
         self.scale_canvas(1.1 if event.delta>0 else 0.9)
 
-    # --- Отрисовка ---
+    #Рисуем
     def draw_system(self):
         self.canvas.delete("all")
         if not self.nodes: return
@@ -516,7 +524,6 @@ class PreprocessorApp:
 
         self.canvas.create_line(margin,y_mid+50,w-margin,y_mid+50,width=2,arrow=tk.LAST)
 
-        # стержни
         for idx,e in enumerate(self.elements):
             n1,n2 = e['nodes']
             x1 = margin + (self.nodes[n1-1]-x_min)*scale
@@ -524,7 +531,6 @@ class PreprocessorApp:
             self.canvas.create_line(x1,y_mid,x2,y_mid,width=3)
             self.canvas.create_text((x1+x2)/2, y_mid-15, text=f"{idx+1}", fill="black", font=("Arial",9))
 
-        # распределённые нагрузки
         for idx,q_val in self.element_forces:
             e = self.elements[idx]
             x1 = margin + (self.nodes[e['nodes'][0]-1]-x_min)*scale
@@ -537,28 +543,24 @@ class PreprocessorApp:
                 else: self.canvas.create_line(px,y_mid+20,px-10,y_mid+20,fill="blue",arrow=tk.LAST,width=2)
             self.canvas.create_text((x1+x2)/2, y_mid+35, text=f"q={q_val}", fill="blue", font=("Arial",9))
 
-        # узлы
         for i,x in enumerate(self.nodes,start=1):
             X = margin + (x-x_min)*scale
             self.canvas.create_oval(X-3,y_mid-3,X+3,y_mid+3,fill="black")
             self.canvas.create_text(X, y_mid-10, text=f"{i}")
             self.canvas.create_text(X,y_mid+60,text=f"{x:.2f}",font=("Arial",9))
 
-        # опоры
         for n in self.supports:
             X = margin + (self.nodes[n-1]-x_min)*scale
             self.canvas.create_line(X,y_mid+5,X,y_mid+35,fill="red",width=3)
             for i in range(5): self.canvas.create_line(X-10,y_mid+20+i*3,X+10,y_mid+20+i*3,fill="red")
 
-        # силы
         for n,F in self.forces:
             X = margin + (self.nodes[n-1]-x_min)*scale
             arrow_len=30
             if F>0: self.canvas.create_line(X,y_mid-30,X+arrow_len,y_mid-30,fill="green",arrow=tk.LAST,width=2)
             else: self.canvas.create_line(X,y_mid-30,X-arrow_len,y_mid-30,fill="green",arrow=tk.LAST,width=2)
             self.canvas.create_text(X,y_mid-40,text=f"F={F}",fill="green",font=("Arial",9))
-
-    # --- Экспорт JSON ---
+    # Экспорт
     def export_json(self):
         data = {'nodes':self.nodes,'elements':self.elements,'supports':self.supports,'forces':self.forces,'element_forces':self.element_forces}
         file_path = filedialog.asksaveasfilename(defaultextension=".json", filetypes=[("JSON","*.json")])
@@ -566,7 +568,7 @@ class PreprocessorApp:
             with open(file_path,"w") as f: json.dump(data,f)
             messagebox.showinfo("Экспорт","Проект сохранён.")
 
-    # --- Импорт JSON ---
+    #Импорт
     def import_json(self):
         file_path = filedialog.askopenfilename(filetypes=[("JSON","*.json")])
         if file_path:
@@ -591,5 +593,6 @@ class PreprocessorApp:
 
 if __name__=="__main__":
     root = tk.Tk()
+    root.iconbitmap("icon.ico")
     app = PreprocessorApp(root)
     root.mainloop()
