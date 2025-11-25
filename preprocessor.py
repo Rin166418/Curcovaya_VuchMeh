@@ -5,19 +5,18 @@ from datetime import datetime
 import math
 import os
 import tempfile
-
 import numpy as np
 
 try:
-    from docx import Document  # type: ignore
-    from docx.shared import Inches  # type: ignore
-except ImportError:  # pragma: no cover - optional dependency
+    from docx import Document
+    from docx.shared import Inches 
+except ImportError: 
     Document = None
     Inches = None
 
 try:
     import matplotlib.pyplot as plt
-except ImportError:  # pragma: no cover - optional dependency
+except ImportError:  
     plt = None
 
 PASTEL_BG = "#e6f0ff"
@@ -147,17 +146,18 @@ class StructuralProcessor:
             u1 = displacements[n1 - 1]
             u2 = displacements[n2 - 1]
             L = element['L']
-            strain = (u2 - u1) / L
-            stress = element['E'] * strain
+
+            stress = element['E'] * ((u2 - u1) / L) 
+
             axial_force = stress * element['A']
             q_val = q_map.get(idx, 0.0)
+
             results.append({
                 'index': idx + 1,
                 'nodes': (n1, n2),
                 'length': L,
                 'u1': float(u1),
                 'u2': float(u2),
-                'strain': float(strain),
                 'stress': float(stress),
                 'force': float(axial_force),
                 'allowable_sigma': element['sigma'],
@@ -166,6 +166,7 @@ class StructuralProcessor:
                 'q': float(q_val),
             })
         return results
+
 
     def _build_warnings(self, element_results):
         warnings = []
@@ -187,7 +188,15 @@ class StructuralProcessor:
         L = element_result['length']
         if not (0.0 <= x_local <= L):
             raise ValueError("Локальная координата должна быть в пределах [0, L].")
-        u = element_result['u1'] + (element_result['u2'] - element_result['u1']) * (x_local / L)
+
+        xi = x_local / L
+        u = element_result['u1'] * (1 - xi) + element_result['u2'] * xi
+        if element_result['q'] != 0:
+
+            E = element_result['E']
+            A = element_result['A']
+            parabolic_term = (element_result['q'] * L * L / (2 * E * A)) * xi * (1 - xi)
+            u += parabolic_term
         if element_result['q'] == 0:
             nx = element_result['force']
         else:
@@ -226,7 +235,6 @@ class DiagramWindow(tk.Toplevel):
             min_val -= 1.0
         scale_y = (height - 2 * margin) / (max_val - min_val)
 
-        # область построения
         plot_left = margin
         plot_right = width - margin
         plot_top = margin
@@ -234,24 +242,32 @@ class DiagramWindow(tk.Toplevel):
 
         zero_y = plot_bottom - (0 - min_val) * scale_y
 
+        # Сетка
+        num_x_grid = 10
+        for i in range(num_x_grid + 1):
+            x_grid = plot_left + (plot_right - plot_left) * i / num_x_grid
+            self.canvas.create_line(x_grid, plot_top, x_grid, plot_bottom, fill="#e0e0e0", width=1)
+        num_y_grid = 8
+        for i in range(num_y_grid + 1):
+            y_grid = plot_top + (plot_bottom - plot_top) * i / num_y_grid
+            val_grid = max_val - (max_val - min_val) * i / num_y_grid
+            self.canvas.create_line(plot_left, y_grid, plot_right, y_grid, fill="#e0e0e0", width=1)
+            self.canvas.create_text(plot_left - 5, y_grid, text=f"{val_grid:.2f}", font=("Arial", 7), fill="#666666", anchor=tk.E)
+
         # Оси
         self.canvas.create_rectangle(plot_left, plot_top, plot_right, plot_bottom, outline="#b3cde4")
-        self.canvas.create_line(plot_left, zero_y, plot_right, zero_y, fill="#888888", dash=(4, 2))
-        self.canvas.create_line(plot_left, plot_bottom, plot_right, plot_bottom, arrow=tk.LAST)
-        self.canvas.create_line(plot_left, plot_bottom, plot_left, plot_top, arrow=tk.LAST)
+        self.canvas.create_line(plot_left, zero_y, plot_right, zero_y, fill="#888888", dash=(4, 2), width=2)
+        self.canvas.create_line(plot_left, plot_bottom, plot_right, plot_bottom, arrow=tk.LAST, width=2)
+        self.canvas.create_line(plot_left, plot_bottom, plot_left, plot_top, arrow=tk.LAST, width=2)
         self.canvas.create_text(plot_left - 25, plot_top + 10, text=self.y_label, angle=90, font=("Arial", 10, "bold"))
-        self.canvas.create_text((plot_left + plot_right) / 2, plot_bottom + 25, text="Локальная координата ξ, м", font=("Arial", 10, "bold"))
+        self.canvas.create_text((plot_left + plot_right) / 2, plot_bottom + 25, text="Локальная координата x, м", font=("Arial", 10, "bold"))
 
         plot_width = plot_right - plot_left
         segment_count = len(self.segments)
         total_length = sum(seg['length'] for seg in self.segments)
         if total_length <= 0:
             total_length = 1.0
-        gap_px = 0
-        if segment_count > 1:
-            gap_px = min(40, max(12, plot_width * 0.04))
-        usable_width = max(plot_width - gap_px * (segment_count - 1), 1)
-        scale_x = usable_width / total_length
+        scale_x = plot_width / total_length
 
         current_x = plot_left
         for idx_seg, seg in enumerate(self.segments):
@@ -270,7 +286,9 @@ class DiagramWindow(tk.Toplevel):
                         x1, zero_y, x1, y1, x2, y2, x2, zero_y,
                         fill="#9ecae1", outline="", stipple="gray50"
                     )
-            for x, y, value in pts:
+
+            if pts:
+                x, y, value = pts[0]
                 self.canvas.create_oval(x - 3, y - 3, x + 3, y + 3, fill="#08519c", outline="")
                 offset = -12 if value >= 0 else 12
                 y_label = max(plot_top + 12, min(plot_bottom - 12, y + offset))
@@ -281,11 +299,22 @@ class DiagramWindow(tk.Toplevel):
                     font=("Arial", 8, "bold"),
                     fill="#08306b"
                 )
+
+                if len(pts) > 1:
+                    x, y, value = pts[-1]
+                    self.canvas.create_oval(x - 3, y - 3, x + 3, y + 3, fill="#08519c", outline="")
+                    offset = -12 if value >= 0 else 12
+                    y_label = max(plot_top + 12, min(plot_bottom - 12, y + offset))
+                    self.canvas.create_text(
+                        x,
+                        y_label,
+                        text=f"{value:.2f}",
+                        font=("Arial", 8, "bold"),
+                        fill="#08306b"
+                    )
             label_x = (line_pts[0][0] + line_pts[-1][0]) / 2 if line_pts else current_x
             self.canvas.create_text(label_x, plot_bottom + 12, text=f"e{seg['index']}", font=("Arial", 9, "bold"))
             current_x += seg['length'] * scale_x
-            if idx_seg < segment_count - 1:
-                current_x += gap_px
 
 class PreprocessorApp:
     def __init__(self, root):
@@ -304,6 +333,7 @@ class PreprocessorApp:
         self.results = None
         self.section_result_var = tk.StringVar(value="Результаты отсутствуют")
         self.sorted_elements_for_combo = []
+        self.imported_file_name = None 
 
         self.create_ui()
         self.draw_system()
@@ -377,6 +407,10 @@ class PreprocessorApp:
         RoundedButton(self.control_frame, "Добавить силу F", self.add_force).pack(fill=tk.X,pady=2)
         RoundedButton(self.control_frame, "Удалить силу F", self.delete_force).pack(fill=tk.X,pady=2)
 
+        # Метка для отображения имени импортированного файла
+        self.file_name_label = tk.Label(self.control_frame, text="", bg=PASTEL_BG, font=("Arial", 9), fg="#666666", wraplength=240)
+        self.file_name_label.pack(pady=5)
+        
         tk.Label(self.control_frame, text="Управление проектом", font=("Arial",11,"bold"), bg=PASTEL_BG).pack(pady=10)
         RoundedButton(self.control_frame, "Очистить всё", self.clear_all).pack(fill=tk.X,pady=2)
         RoundedButton(self.control_frame, "Масштаб +", lambda:self.scale_canvas(1.2)).pack(fill=tk.X,pady=2)
@@ -393,7 +427,7 @@ class PreprocessorApp:
         tk.Label(self.control_frame, text="Выберите стержень:", bg=PASTEL_BG).pack(anchor=tk.W)
         self.section_element_combo = ttk.Combobox(self.control_frame, width=10, state='readonly')
         self.section_element_combo.pack(anchor=tk.W)
-        tk.Label(self.control_frame, text="Локальная координата ξ:", bg=PASTEL_BG).pack(anchor=tk.W)
+        tk.Label(self.control_frame, text="Локальная координата x:", bg=PASTEL_BG).pack(anchor=tk.W)
         self.entry_section_coordinate = ttk.Entry(self.control_frame, width=10)
         self.entry_section_coordinate.pack(anchor=tk.W)
         RoundedButton(self.control_frame, "Показать компоненты", self.calculate_section_values).pack(fill=tk.X, pady=2)
@@ -448,9 +482,9 @@ class PreprocessorApp:
         self.tree_forces = self._create_tree_tab("Силы F", ("node","F"), ("node","F"))
         self.tree_displacements = self._create_tree_tab("Перемещения", ("node","ux"), ("Узел","ux"))
         self.tree_element_results = self._create_tree_tab(
-            "Результаты стержней",
-            ("element","Nx","sigma","strain","u1","u2"),
-            ("Стержень","Nx","σx","ε","u1","u2")
+            "Результаты рассчетов",
+            ("element","Nx1","Nx2","sigma1","sigma2","u1","u2"),
+            ("Стержень","Nx1","Nx2","σx1","σx2","u1","u2")
         )
 
         analysis_frame = ttk.Frame(self.tab_control)
@@ -462,16 +496,23 @@ class PreprocessorApp:
 
     def _create_tree_tab(self, title, columns, headings):
         frame = ttk.Frame(self.tab_control)
-        tree = ttk.Treeview(frame, columns=columns, show='headings')
+        
+        tree_container = ttk.Frame(frame)
+        tree_container.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+        tree = ttk.Treeview(tree_container, columns=columns, show='headings')
         for col, head in zip(columns, headings):
             tree.heading(col, text=head)
+            tree.column(col, width=100, minwidth=80) 
         tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar = ttk.Scrollbar(frame, orient="vertical", command=tree.yview)
-        tree.configure(yscrollcommand=scrollbar.set)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+
+        v_scrollbar = ttk.Scrollbar(tree_container, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=v_scrollbar.set)
+        v_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
         self.tab_control.add(frame, text=title)
         return tree
-
 
     #Обновление окошек с выбором
     def update_comboboxes(self):
@@ -555,14 +596,23 @@ class PreprocessorApp:
 
         self.tree_element_results.delete(*self.tree_element_results.get_children())
         for res in self.results['element_results']:
+            length = res['length']
+            q_val = res['q']
+
+            Nx1 = res['force'] + q_val * length / 2
+            Nx2 = res['force'] - q_val * length / 2
+
+            sigma1 = Nx1 / res['A']
+            sigma2 = Nx2 / res['A']
             self.tree_element_results.insert(
                 "",
                 tk.END,
                 values=(
                     f"{res['nodes'][0]}-{res['nodes'][1]}",
-                    f"{res['force']:.2f}",
-                    f"{res['stress']:.2f}",
-                    f"{res['strain']:.5f}",
+                    f"{Nx1:.2f}",
+                    f"{Nx2:.2f}",
+                    f"{sigma1:.2f}",
+                    f"{sigma2:.2f}",
                     f"{res['u1']:.5f}",
                     f"{res['u2']:.5f}",
                 )
@@ -570,16 +620,69 @@ class PreprocessorApp:
 
         self.analysis_text.configure(state='normal')
         self.analysis_text.delete("1.0", tk.END)
-        self.analysis_text.insert(tk.END, "Реакции опор:\n")
+        
+        self.analysis_text.insert(tk.END, "АНАЛИЗ РЕЗУЛЬТАТОВ РАСЧЁТА\n")
+        
+        self.analysis_text.insert(tk.END, "1. РЕАКЦИИ ОПОР:\n")
+        total_reaction = 0.0
         for node, value in self.results.get('reactions', []):
-            self.analysis_text.insert(tk.END, f"  R{node} = {value:.2f}\n")
-        self.analysis_text.insert(tk.END, "\nПроверка допускаемых напряжений:\n")
+            self.analysis_text.insert(tk.END, f"   R{node} = {value:.2f} Н\n")
+            total_reaction += value
+        if self.results.get('reactions'):
+            self.analysis_text.insert(tk.END, f"   Сумма реакций: {total_reaction:.2f} Н\n")
+        self.analysis_text.insert(tk.END, "\n")
+        
+        self.analysis_text.insert(tk.END, "2. ПЕРЕМЕЩЕНИЯ УЗЛОВ:\n")
+        max_disp = max(abs(u) for u in self.results['displacements']) if self.results['displacements'] else 0
+        max_disp_node = None
+        for i, ux in enumerate(self.results['displacements'], start=1):
+            self.analysis_text.insert(tk.END, f"   Узел {i}: ux = {ux:.6f} м\n")
+            if abs(ux) == max_disp:
+                max_disp_node = i
+        if max_disp_node:
+            self.analysis_text.insert(tk.END, f"   Максимальное перемещение: узел {max_disp_node}, |ux| = {max_disp:.6f} м\n")
+        self.analysis_text.insert(tk.END, "\n")
+        
+        self.analysis_text.insert(tk.END, "3. ВНУТРЕННИЕ УСИЛИЯ И НАПРЯЖЕНИЯ:\n")
+        max_force = 0.0
+        max_force_elem = None
+        max_stress = 0.0
+        max_stress_elem = None
+        for res in self.results['element_results']:
+            length = res['length']
+            q_val = res['q']
+            Nx1 = res['force'] + q_val * length / 2
+            Nx2 = res['force'] - q_val * length / 2
+            sigma1 = abs(Nx1 / res['A'])
+            sigma2 = abs(Nx2 / res['A'])
+            max_Nx = max(abs(Nx1), abs(Nx2))
+            max_sigma = max(sigma1, sigma2)
+            if max_Nx > max_force:
+                max_force = max_Nx
+                max_force_elem = res['index']
+            if max_sigma > max_stress:
+                max_stress = max_sigma
+                max_stress_elem = res['index']
+            self.analysis_text.insert(tk.END, f"   Стержень {res['index']} ({res['nodes'][0]}-{res['nodes'][1]}):\n")
+            self.analysis_text.insert(tk.END, f"      Nx1 = {Nx1:.2f} Н, Nx2 = {Nx2:.2f} Н\n")
+            self.analysis_text.insert(tk.END, f"      σx1 = {sigma1:.2f} Па, σx2 = {sigma2:.2f} Па\n")
+            self.analysis_text.insert(tk.END, f"      Допускаемое: {res['allowable_sigma']:.2f} Па\n")
+        if max_force_elem:
+            self.analysis_text.insert(tk.END, f"   Максимальное усилие: стержень {max_force_elem}, |Nx| = {max_force:.2f} Н\n")
+        if max_stress_elem:
+            self.analysis_text.insert(tk.END, f"   Максимальное напряжение: стержень {max_stress_elem}, |σx| = {max_stress:.2f} Па\n")
+        self.analysis_text.insert(tk.END, "\n")
+        
+        self.analysis_text.insert(tk.END, "4. ПРОВЕРКА ДОПУСКАЕМЫХ НАПРЯЖЕНИЙ:\n")
         warnings = self.results.get('warnings', [])
         if warnings:
             for w in warnings:
-                self.analysis_text.insert(tk.END, f"  - {w}\n")
+                self.analysis_text.insert(tk.END, f"    {w}\n")
         else:
-            self.analysis_text.insert(tk.END, "  Все напряжения в пределах допуска.\n")
+            self.analysis_text.insert(tk.END, "   Все напряжения в пределах допуска.\n")
+        self.analysis_text.insert(tk.END, "\n")
+        
+        self.analysis_text.insert(tk.END, "")
         self.analysis_text.configure(state='disabled')
 
     def run_analysis(self):
@@ -590,7 +693,7 @@ class PreprocessorApp:
             messagebox.showerror("Расчёт", str(exc))
             return
         self.populate_results_ui()
-        self.section_result_var.set("Расчёт выполнен. Выберите стержень и ξ.")
+        self.section_result_var.set("Расчёт выполнен. Выберите стержень и x.")
         messagebox.showinfo("Расчёт", "Расчёт завершён.")
         self.draw_system()
 
@@ -606,7 +709,7 @@ class PreprocessorApp:
             element_idx, _ = self.sorted_elements_for_combo[combo_idx]
             xi = float(self.entry_section_coordinate.get())
         except Exception:
-            messagebox.showerror("Сечение", "Введите корректное значение ξ.")
+            messagebox.showerror("Сечение", "Введите корректное значение x.")
             return
         element_result = self.results['element_results'][element_idx]
         try:
@@ -648,15 +751,29 @@ class PreprocessorApp:
             length = res['length']
             q_val = res['q']
             if component == 'ux':
-                points = [(0.0, res['u1']), (length, res['u2'])]
+
+                num_points = max(20, int(length * 10)) 
+                points = []
+                for i in range(num_points + 1):
+                    x_local = length * i / num_points
+                    values = StructuralProcessor.evaluate_section(res, x_local)
+                    points.append((x_local, values['ux']))
             elif component == 'Nx':
-                start = res['force'] + q_val * length / 2
-                end = res['force'] - q_val * length / 2
-                points = [(0.0, start), (length, end)]
-            else:  # sigma
-                start = (res['force'] + q_val * length / 2) / res['A']
-                end = (res['force'] - q_val * length / 2) / res['A']
-                points = [(0.0, start), (length, end)]
+
+                num_points = max(10, int(length * 5))
+                points = []
+                for i in range(num_points + 1):
+                    x_local = length * i / num_points
+                    values = StructuralProcessor.evaluate_section(res, x_local)
+                    points.append((x_local, values['Nx']))
+            else: 
+
+                num_points = max(10, int(length * 5))
+                points = []
+                for i in range(num_points + 1):
+                    x_local = length * i / num_points
+                    values = StructuralProcessor.evaluate_section(res, x_local)
+                    points.append((x_local, values['sigma']))
             segments.append({'index': res['index'], 'length': length, 'points': points})
         return segments
 
@@ -728,7 +845,7 @@ class PreprocessorApp:
         lines.append("\nРезультаты по стержням:")
         for res in report['results']['element_results']:
             lines.append(
-                f"  {res['index']}: {res['nodes'][0]}-{res['nodes'][1]}, Nx={res['force']:.2f}, σx={res['stress']:.2f}, ε={res['strain']:.6f}"
+                f"  {res['index']}: {res['nodes'][0]}-{res['nodes'][1]}, Nx={res['force']:.2f}, σx={res['stress']:.2f}"
             )
         lines.append("\nРеакции опор:")
         for node, value in report['results'].get('reactions', []):
@@ -787,11 +904,10 @@ class PreprocessorApp:
                 f"{res['nodes'][0]}-{res['nodes'][1]}",
                 f"{res['force']:.2f}",
                 f"{res['stress']:.2f}",
-                f"{res['strain']:.6f}",
                 f"{res['u1']:.6f}",
                 f"{res['u2']:.6f}",
             ])
-        self._add_docx_table(doc, "Результаты по стержням", ["#", "Узлы", "Nx", "σx", "ε", "u1", "u2"], element_res_rows)
+        self._add_docx_table(doc, "Результаты по стержням", ["#", "Узлы", "Nx", "σx", "u1", "u2"], element_res_rows)
 
         reactions = report['results'].get('reactions', [])
         if reactions:
@@ -840,6 +956,7 @@ class PreprocessorApp:
         series = self._diagram_component_series(component)
         if not series or len(series[0]) < 2:
             return False
+
         x_values, y_values = series
         fig, ax = plt.subplots(figsize=(6, 3))
         ax.plot(x_values, y_values, color="#1f77b4", linewidth=2)
@@ -856,21 +973,35 @@ class PreprocessorApp:
         return True
 
     def _diagram_component_series(self, component):
-        segments = self._build_diagram_segments(component)
-        if not segments:
+        if not self.nodes or not self.elements or not self.results:
             return None
+
         x_values = []
         y_values = []
-        offset = 0.0
-        for seg in segments:
-            for idx_point, (x_local, value) in enumerate(seg['points']):
-                x_val = offset + x_local
-                if x_values and math.isclose(x_val, x_values[-1]) and idx_point == 0:
-                    continue
-                x_values.append(x_val)
-                y_values.append(value)
-            offset += seg['length']
+
+        if component == 'ux':
+
+            for i, x in enumerate(self.nodes):
+                x_values.append(x)
+                y_values.append(self.results['displacements'][i])
+        elif component in ('Nx', 'sigma'):
+            for idx, elem in enumerate(self.elements):
+                n1, n2 = elem['nodes']
+                x1, x2 = self.nodes[n1-1], self.nodes[n2-1]
+
+                res = self.results['element_results'][idx]
+                y_val = res['force'] if component == 'Nx' else res['stress']
+
+                if x_values and not math.isclose(x_values[-1], x1):
+                    x_values.append(x1)
+                    y_values.append(y_val)
+
+                x_values.extend([x1, x2])
+                y_values.extend([y_val, y_val])
+
         return x_values, y_values
+
+
     #Добавление
     def add_node(self):
         try: 
@@ -1129,6 +1260,9 @@ class PreprocessorApp:
             self.supports.clear()
             self.forces.clear()
             self.element_forces.clear()
+            self.imported_file_name = None
+            if hasattr(self, 'file_name_label'):
+                self.file_name_label.config(text="")
 
             self.combo_n1.set('')
             self.combo_n2.set('')
@@ -1233,142 +1367,143 @@ class PreprocessorApp:
         scale = (w-2*margin)/(x_max-x_min+1e-9)
         y_mid = h/2
 
-        self.canvas.create_line(margin,y_mid+50,w-margin,y_mid+50,width=2,arrow=tk.LAST)
+        if self.nodes:
+            for node_x in self.nodes:
+                x_grid = margin + (node_x - x_min) * scale
+                if margin <= x_grid <= w - margin:
+                    self.canvas.create_line(x_grid, 0, x_grid, h, fill="#f0f0f0", width=1)
 
+        num_y_grid = 15
+        for i in range(num_y_grid + 1):
+            y_grid = h * i / num_y_grid
+            self.canvas.create_line(margin, y_grid, w - margin, y_grid, fill="#f0f0f0", width=1)
+
+        min_width = 15.0
+        max_width = 50.0
+        if self.elements:
+            areas = [e['A'] for e in self.elements]
+            min_area = min(areas)
+            max_area = max(areas)
+        else:
+            min_area = max_area = 1.0
+
+        rod_rects = []
+        max_bottom = y_mid 
         for idx,e in enumerate(self.elements):
             n1,n2 = e['nodes']
             x1 = margin + (self.nodes[n1-1]-x_min)*scale
             x2 = margin + (self.nodes[n2-1]-x_min)*scale
-            self.canvas.create_line(x1,y_mid,x2,y_mid,width=3)
-            self.canvas.create_text((x1+x2)/2, y_mid-15, text=f"{idx+1}", fill="black", font=("Arial",9))
 
+            if math.isclose(max_area, min_area):
+
+                rod_height = (min_width + max_width) / 2
+            else:
+                area_ratio = (e['A'] - min_area) / (max_area - min_area)
+                rod_height = min_width + area_ratio * (max_width - min_width)
+
+            rect_top = y_mid - rod_height / 2
+            rect_bottom = y_mid + rod_height / 2
+            max_bottom = max(max_bottom, rect_bottom)
+            self.canvas.create_rectangle(x1, rect_top, x2, rect_bottom, outline="black", width=2, fill="")
+            self.canvas.create_text((x1+x2)/2, y_mid-rod_height/2-15, text=f"{idx+1}", fill="black", font=("Arial",9))
+            rod_rects.append((idx, x1, x2, rect_top, rect_bottom, y_mid))
+
+        max_q_y = max_bottom
         for idx,q_val in self.element_forces:
             e = self.elements[idx]
             x1 = margin + (self.nodes[e['nodes'][0]-1]-x_min)*scale
             x2 = margin + (self.nodes[e['nodes'][1]-1]-x_min)*scale
+
+            rod_height = max_width  
+            for rod_idx, rx1, rx2, rtop, rbottom, rymid in rod_rects:
+                if rod_idx == idx:
+                    rod_height = rbottom - rtop
+                    break
+            q_y = y_mid + rod_height / 2 + 15  
+            max_q_y = max(max_q_y, q_y + 25) 
             num_arrows = max(2, int(abs(x2-x1)/20))
             step = (x2-x1)/num_arrows
             for i_arrow in range(num_arrows):
                 px = x1 + i_arrow*step
-                if q_val>0: self.canvas.create_line(px,y_mid+20,px+10,y_mid+20,fill="blue",arrow=tk.LAST,width=2)
-                else: self.canvas.create_line(px,y_mid+20,px-10,y_mid+20,fill="blue",arrow=tk.LAST,width=2)
-            self.canvas.create_text((x1+x2)/2, y_mid+35, text=f"q={q_val}", fill="blue", font=("Arial",9))
+                if q_val>0: self.canvas.create_line(px,q_y,px+10,q_y,fill="blue",arrow=tk.LAST,width=2)
+                else: self.canvas.create_line(px,q_y,px-10,q_y,fill="blue",arrow=tk.LAST,width=2)
+            self.canvas.create_text((x1+x2)/2, q_y + 15, text=f"q={q_val}", fill="blue", font=("Arial",9))
+        
+        axis_y = max_q_y + 20
+        self.canvas.create_line(margin, axis_y, w-margin, axis_y, width=2, arrow=tk.LAST)
 
         for i,x in enumerate(self.nodes,start=1):
             X = margin + (x-x_min)*scale
             self.canvas.create_oval(X-3,y_mid-3,X+3,y_mid+3,fill="black")
-            self.canvas.create_text(X, y_mid + 55, text=f"{i}", font=("Arial",9,"bold"))
-            self.canvas.create_text(X, y_mid + 70, text=f"{x:.2f}",font=("Arial",8))
+            self.canvas.create_text(X, axis_y + 15, text=f"{i}", font=("Arial",9,"bold"))
+            self.canvas.create_text(X, axis_y + 30, text=f"{x:.2f}",font=("Arial",8))
 
+        system_center_x = (x_min + x_max) / 2
+        system_center_pixel = margin + (system_center_x - x_min) * scale
+        
         for n in self.supports:
             X = margin + (self.nodes[n-1]-x_min)*scale
-            self.canvas.create_line(X,y_mid+5,X,y_mid+35,fill="red",width=3)
-            for i in range(5): self.canvas.create_line(X-10,y_mid+20+i*3,X+10,y_mid+20+i*3,fill="red")
+            rod_height = max_width  
+            for rod_idx, rx1, rx2, rtop, rbottom, rymid in rod_rects:
+
+                if min(rx1, rx2) <= X <= max(rx1, rx2):
+                    rod_height = rbottom - rtop
+                    break
+
+            support_top = y_mid - rod_height / 2
+            support_bottom = y_mid + rod_height / 2
+            self.canvas.create_line(X, support_top, X, support_bottom, fill="red", width=3)
+
+            is_left = X < system_center_pixel
+            
+            hatch_length = 8
+            hatch_spacing = 6
+            num_hatches = int((support_bottom - support_top) / hatch_spacing)
+            for i in range(num_hatches):
+                y_pos = support_top + i * hatch_spacing
+                if is_left:
+                    x1_hatch = X - hatch_length
+                    y1_hatch = y_pos + hatch_length
+                    x2_hatch = X
+                    y2_hatch = y_pos
+                else:
+                    x1_hatch = X
+                    y1_hatch = y_pos
+                    x2_hatch = X + hatch_length
+                    y2_hatch = y_pos + hatch_length
+                self.canvas.create_line(x1_hatch, y1_hatch, x2_hatch, y2_hatch, fill="red", width=2)
 
         for n,F in self.forces:
             X = margin + (self.nodes[n-1]-x_min)*scale
-            arrow_len=30
-            if F>0: self.canvas.create_line(X,y_mid-30,X+arrow_len,y_mid-30,fill="green",arrow=tk.LAST,width=2)
-            else: self.canvas.create_line(X,y_mid-30,X-arrow_len,y_mid-30,fill="green",arrow=tk.LAST,width=2)
-            self.canvas.create_text(X,y_mid-40,text=f"F={F}",fill="green",font=("Arial",9))
 
-        if self.results:
-            displacements = self.results['displacements']
-            displacement_band_bottom = y_mid + 80
-            displacement_drawn = False
-            if displacements:
-                max_disp = max((abs(u) for u in displacements), default=0.0)
-                if max_disp > 0:
-                    disp_band_top = y_mid + 80
-                    displacement_band_bottom = disp_band_top + 50
-                    disp_mid = (disp_band_top + displacement_band_bottom) / 2
-                    disp_scale = ((displacement_band_bottom - disp_band_top) / 2) / max_disp
-                    self.canvas.create_line(margin, disp_mid, w - margin, disp_mid, fill="#4a9c5d", dash=(3, 2))
-                    points = []
-                    for i, u in enumerate(displacements, start=1):
-                        X = margin + (self.nodes[i-1]-x_min)*scale
-                        Y = disp_mid - u * disp_scale
-                        points.append((X, Y, u))
-                    if points:
-                        polygon_coords = [points[0][0], disp_mid]
-                        for x, y, _ in points:
-                            polygon_coords.extend([x, y])
-                        polygon_coords.extend([points[-1][0], disp_mid])
-                        self.canvas.create_polygon(
-                            *polygon_coords,
-                            fill="#b5e3c3",
-                            outline="",
-                            stipple="gray50"
-                        )
-                        self.canvas.create_line(
-                            [(x, y) for x, y, _ in points],
-                            fill="#1f7a3d",
-                            width=3,
-                            smooth=True
-                        )
-                        for x, y, u in points:
-                            self.canvas.create_oval(x - 3, y - 3, x + 3, y + 3, fill="#1f7a3d", outline="")
-                            self.canvas.create_text(x, y - 12, text=f"{u:.3f}", fill="#1f7a3d", font=("Arial",8,"bold"))
-                    self.canvas.create_text(margin - 45, disp_mid, text="ux", font=("Arial", 10, "bold"))
-                    displacement_drawn = True
+            found_rod = False
+            for rod_idx, x1, x2, rect_top, rect_bottom, rod_y_mid in rod_rects:
+                if min(x1, x2) <= X <= max(x1, x2):
 
-            nx_segments = self._build_diagram_segments('Nx')
-            if nx_segments:
-                max_force = max((abs(value) for seg in nx_segments for _, value in seg['points']), default=0.0)
-                if max_force > 0:
-                    available_bottom = h - margin - 20
-                    if displacement_drawn:
-                        diagram_top = displacement_band_bottom + 20
+                    arrow_len = min(25, (max(x1, x2) - min(x1, x2)) * 0.3)
+                    if F > 0:
+                        arrow_end_x = X + arrow_len
+                        self.canvas.create_line(X, rod_y_mid, arrow_end_x, rod_y_mid, fill="green", arrow=tk.LAST, width=2)
+
+                        self.canvas.create_text(arrow_end_x + 15, rod_y_mid, text=f"F={F}", fill="green", font=("Arial", 8, "bold"), anchor=tk.W)
                     else:
-                        diagram_top = y_mid + 90
-                    diagram_bottom = max(diagram_top + 50, min(available_bottom, diagram_top + 80))
-                    diagram_height = max(diagram_bottom - diagram_top, 40)
-                    diagram_mid = diagram_top + diagram_height / 2
-                    force_scale = (diagram_height / 2) / max_force
-                    self.canvas.create_line(margin, diagram_mid, w - margin, diagram_mid, fill="#555555", dash=(3, 2))
-                    self.canvas.create_text(margin - 40, diagram_mid, text="Nx", font=("Arial", 10, "bold"))
-                    for seg in nx_segments:
-                        idx = seg['index'] - 1
-                        element = self.elements[idx]
-                        n1, n2 = element['nodes']
-                        x1 = margin + (self.nodes[n1-1]-x_min)*scale
-                        x2 = margin + (self.nodes[n2-1]-x_min)*scale
-                        start_val = seg['points'][0][1]
-                        end_val = seg['points'][-1][1]
-                        y_start = diagram_mid - start_val * force_scale
-                        y_end = diagram_mid - end_val * force_scale
-                        self.canvas.create_polygon(
-                            x1, diagram_mid, x1, y_start, x2, y_end, x2, diagram_mid,
-                            fill="#d5c5f0", outline="", stipple="gray25"
-                        )
-                        self.canvas.create_line(
-                            x1,
-                            y_start,
-                            x2,
-                            y_end,
-                            fill="#5e3c99",
-                            width=3
-                        )
-                        self.canvas.create_text(
-                            (x1 + x2) / 2,
-                            diagram_bottom - 10,
-                            text=f"Nx e{seg['index']}",
-                            font=("Arial", 8)
-                        )
-                        self.canvas.create_text(
-                            x1,
-                            diagram_bottom - 25,
-                            text=f"{start_val:.2f}",
-                            font=("Arial", 8, "bold"),
-                            fill="#5e3c99"
-                        )
-                        self.canvas.create_text(
-                            x2,
-                            diagram_bottom - 25,
-                            text=f"{end_val:.2f}",
-                            font=("Arial", 8, "bold"),
-                            fill="#5e3c99"
-                        )
+                        arrow_end_x = X - arrow_len
+                        self.canvas.create_line(X, rod_y_mid, arrow_end_x, rod_y_mid, fill="green", arrow=tk.LAST, width=2)
+
+                        self.canvas.create_text(arrow_end_x - 15, rod_y_mid, text=f"F={F}", fill="green", font=("Arial", 8, "bold"), anchor=tk.E)
+                    found_rod = True
+                    break
+
+            if not found_rod:
+                arrow_len = 20
+                if F > 0:
+                    self.canvas.create_line(X, y_mid, X + arrow_len, y_mid, fill="green", arrow=tk.LAST, width=2)
+                else:
+                    self.canvas.create_line(X, y_mid, X - arrow_len, y_mid, fill="green", arrow=tk.LAST, width=2)
+                self.canvas.create_text(X, y_mid - 15, text=f"F={F}", fill="green", font=("Arial", 9))
+
+        
+            
         bbox = self.canvas.bbox("all")
         if bbox:
             self.canvas.configure(scrollregion=bbox)
@@ -1398,6 +1533,10 @@ class PreprocessorApp:
             for idx, q in data.get('element_forces', []):
                 if 0 <= idx < len(self.elements) and q != 0:
                     self.element_forces.append((idx, q))
+
+            self.imported_file_name = os.path.basename(file_path)
+            if hasattr(self, 'file_name_label'):
+                self.file_name_label.config(text=f"Файл: {self.imported_file_name}")
 
             self.reset_view_range()
             self.reset_postprocessor()
