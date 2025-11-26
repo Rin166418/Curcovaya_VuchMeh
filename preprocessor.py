@@ -206,17 +206,88 @@ class StructuralProcessor:
 
 
 class DiagramWindow(tk.Toplevel):
-    def __init__(self, master, segments, title, y_label):
+    def __init__(self, master, segments, title, y_label, component):
         super().__init__(master)
         self.title(title)
         self.geometry("800x500")
         self.configure(bg=PASTEL_BG)
         self.segments = segments
         self.y_label = y_label
+        self.component = component
 
         self.canvas = tk.Canvas(self, bg="white")
         self.canvas.pack(fill=tk.BOTH, expand=True)
         self.canvas.bind("<Configure>", lambda e: self._draw())
+
+    @staticmethod
+    def _format_value(value):
+        abs_val = abs(value)
+        if abs_val == 0:
+            return "0"
+        if abs_val >= 1:
+            return f"{value:.2f}"
+        if abs_val >= 1e-2:
+            return f"{value:.4f}"
+        return f"{value:.2e}"
+
+    def _draw_point_label(self, x, y, value, plot_top, plot_bottom, prefix=""):
+        offset = -12 if value >= 0 else 12
+        y_label = max(plot_top + 12, min(plot_bottom - 12, y + offset))
+        label_text = f"{prefix}{self._format_value(value)}"
+        self.canvas.create_text(
+            x,
+            y_label,
+            text=label_text,
+            font=("Arial", 8, "bold"),
+            fill="#08306b"
+        )
+
+    def _label_extrema_points(self, points, plot_top, plot_bottom):
+        if self.component != 'ux' or len(points) < 2:
+            return
+        tol = 1e-10
+        extrema_points = []
+
+        for i in range(1, len(points) - 1):
+            prev_val = points[i - 1]['value']
+            curr_val = points[i]['value']
+            next_val = points[i + 1]['value']
+            delta_prev = curr_val - prev_val
+            delta_next = next_val - curr_val
+            if abs(delta_prev) < tol and abs(delta_next) < tol:
+                continue
+            if delta_prev > 0 and delta_next < 0:
+                extrema_points.append(points[i])
+            elif delta_prev < 0 and delta_next > 0:
+                extrema_points.append(points[i])
+
+        max_val = max(points, key=lambda p: p['value'])['value']
+        min_val = min(points, key=lambda p: p['value'])['value']
+        if max_val - min_val > tol:
+            if math.isclose(points[0]['value'], max_val, rel_tol=1e-6, abs_tol=tol):
+                extrema_points.append(points[0])
+            if math.isclose(points[-1]['value'], max_val, rel_tol=1e-6, abs_tol=tol):
+                extrema_points.append(points[-1])
+            if math.isclose(points[0]['value'], min_val, rel_tol=1e-6, abs_tol=tol):
+                extrema_points.append(points[0])
+            if math.isclose(points[-1]['value'], min_val, rel_tol=1e-6, abs_tol=tol):
+                extrema_points.append(points[-1])
+
+        seen = set()
+        for point in extrema_points:
+            key = (round(point['x'], 2), round(point['value'], 6))
+            if key in seen:
+                continue
+            seen.add(key)
+            self.canvas.create_oval(
+                point['x'] - 4,
+                point['y'] - 4,
+                point['x'] + 4,
+                point['y'] + 4,
+                outline="#d62728",
+                width=2
+            )
+            self._draw_point_label(point['x'], point['y'], point['value'], plot_top, plot_bottom)
 
     def _draw(self):
         self.canvas.delete("all")
@@ -270,12 +341,14 @@ class DiagramWindow(tk.Toplevel):
         scale_x = plot_width / total_length
 
         current_x = plot_left
+        all_points = []
         for idx_seg, seg in enumerate(self.segments):
             pts = []
             for x_local, value in seg['points']:
                 x = current_x + x_local * scale_x
                 y = height - margin - (value - min_val) * scale_y
                 pts.append((x, y, value))
+                all_points.append({'x': x, 'y': y, 'value': value})
             line_pts = [(x, y) for x, y, _ in pts]
             if len(line_pts) >= 2:
                 self.canvas.create_line(line_pts, fill="#08519c", width=3, smooth=True)
@@ -290,31 +363,16 @@ class DiagramWindow(tk.Toplevel):
             if pts:
                 x, y, value = pts[0]
                 self.canvas.create_oval(x - 3, y - 3, x + 3, y + 3, fill="#08519c", outline="")
-                offset = -12 if value >= 0 else 12
-                y_label = max(plot_top + 12, min(plot_bottom - 12, y + offset))
-                self.canvas.create_text(
-                    x,
-                    y_label,
-                    text=f"{value:.2f}",
-                    font=("Arial", 8, "bold"),
-                    fill="#08306b"
-                )
+                self._draw_point_label(x, y, value, plot_top, plot_bottom)
 
                 if len(pts) > 1:
                     x, y, value = pts[-1]
                     self.canvas.create_oval(x - 3, y - 3, x + 3, y + 3, fill="#08519c", outline="")
-                    offset = -12 if value >= 0 else 12
-                    y_label = max(plot_top + 12, min(plot_bottom - 12, y + offset))
-                    self.canvas.create_text(
-                        x,
-                        y_label,
-                        text=f"{value:.2f}",
-                        font=("Arial", 8, "bold"),
-                        fill="#08306b"
-                    )
+                    self._draw_point_label(x, y, value, plot_top, plot_bottom)
             label_x = (line_pts[0][0] + line_pts[-1][0]) / 2 if line_pts else current_x
             self.canvas.create_text(label_x, plot_bottom + 12, text=f"e{seg['index']}", font=("Arial", 9, "bold"))
             current_x += seg['length'] * scale_x
+        self._label_extrema_points(all_points, plot_top, plot_bottom)
 
 class PreprocessorApp:
     def __init__(self, root):
@@ -733,7 +791,7 @@ class PreprocessorApp:
             'sigma': ("Эпюра σx", "σx"),
         }
         title, ylabel = titles[component]
-        DiagramWindow(self.root, segments, title, ylabel)
+        DiagramWindow(self.root, segments, title, ylabel, component)
 
     def _build_diagram_segments(self, component):
         if not self.results:
@@ -975,29 +1033,18 @@ class PreprocessorApp:
     def _diagram_component_series(self, component):
         if not self.nodes or not self.elements or not self.results:
             return None
+        segments = self._build_diagram_segments(component)
+        if not segments:
+            return None
 
         x_values = []
         y_values = []
-
-        if component == 'ux':
-
-            for i, x in enumerate(self.nodes):
-                x_values.append(x)
-                y_values.append(self.results['displacements'][i])
-        elif component in ('Nx', 'sigma'):
-            for idx, elem in enumerate(self.elements):
-                n1, n2 = elem['nodes']
-                x1, x2 = self.nodes[n1-1], self.nodes[n2-1]
-
-                res = self.results['element_results'][idx]
-                y_val = res['force'] if component == 'Nx' else res['stress']
-
-                if x_values and not math.isclose(x_values[-1], x1):
-                    x_values.append(x1)
-                    y_values.append(y_val)
-
-                x_values.extend([x1, x2])
-                y_values.extend([y_val, y_val])
+        global_offset = 0.0
+        for seg in segments:
+            for x_local, value in seg['points']:
+                x_values.append(global_offset + x_local)
+                y_values.append(value)
+            global_offset += seg['length']
 
         return x_values, y_values
 
@@ -1388,6 +1435,17 @@ class PreprocessorApp:
             min_area = max_area = 1.0
 
         rod_rects = []
+        element_label_map = {}
+        if self.elements:
+            sorted_indices = sorted(
+                range(len(self.elements)),
+                key=lambda idx: min(
+                    self.nodes[self.elements[idx]['nodes'][0]-1],
+                    self.nodes[self.elements[idx]['nodes'][1]-1]
+                )
+            )
+            element_label_map = {idx: order + 1 for order, idx in enumerate(sorted_indices)}
+
         max_bottom = y_mid 
         for idx,e in enumerate(self.elements):
             n1,n2 = e['nodes']
@@ -1405,7 +1463,8 @@ class PreprocessorApp:
             rect_bottom = y_mid + rod_height / 2
             max_bottom = max(max_bottom, rect_bottom)
             self.canvas.create_rectangle(x1, rect_top, x2, rect_bottom, outline="black", width=2, fill="")
-            self.canvas.create_text((x1+x2)/2, y_mid-rod_height/2-15, text=f"{idx+1}", fill="black", font=("Arial",9))
+            label_value = element_label_map.get(idx, idx + 1)
+            self.canvas.create_text((x1+x2)/2, y_mid-rod_height/2-15, text=f"{label_value}", fill="black", font=("Arial",9))
             rod_rects.append((idx, x1, x2, rect_top, rect_bottom, y_mid))
 
         max_q_y = max_bottom
