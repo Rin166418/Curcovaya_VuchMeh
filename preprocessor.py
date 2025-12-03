@@ -9,7 +9,7 @@ import numpy as np
 
 try:
     from docx import Document
-    from docx.shared import Inches 
+    from docx.shared import Inches, RGBColor
 except ImportError: 
     Document = None
     Inches = None
@@ -215,9 +215,52 @@ class DiagramWindow(tk.Toplevel):
         self.y_label = y_label
         self.component = component
 
-        self.canvas = tk.Canvas(self, bg="white")
-        self.canvas.pack(fill=tk.BOTH, expand=True)
+        # Верхняя часть: холст с эпюрой
+        self.canvas = tk.Canvas(self, bg="white", height=320)
+        self.canvas.pack(fill=tk.BOTH, expand=False)
         self.canvas.bind("<Configure>", lambda e: self._draw())
+
+        # Нижняя часть: таблица значений по точкам
+        table_frame = ttk.Frame(self)
+        table_frame.pack(fill=tk.BOTH, expand=True)
+
+        columns = ("elem", "x", "ux", "Nx", "sigma")
+        self.points_table = ttk.Treeview(table_frame, columns=columns, show="headings", height=6)
+        self.points_table.heading("elem", text="Стержень")
+        self.points_table.heading("x", text="x, м")
+        self.points_table.heading("ux", text="ux, м")
+        self.points_table.heading("Nx", text="Nx, Н")
+        self.points_table.heading("sigma", text="σx, Па")
+
+        for col in columns:
+            self.points_table.column(col, width=100, anchor=tk.CENTER)
+
+        vsb = ttk.Scrollbar(table_frame, orient="vertical", command=self.points_table.yview)
+        self.points_table.configure(yscrollcommand=vsb.set)
+        self.points_table.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        vsb.pack(side=tk.RIGHT, fill=tk.Y)
+
+        self._fill_points_table()
+
+    def _fill_points_table(self):
+        """Заполнить таблицу значений по всем точкам эпюры."""
+        for row in self.points_table.get_children():
+            self.points_table.delete(row)
+
+        for seg in self.segments:
+            elem_idx = seg.get('index', '')
+            for val in seg.get('values', []):
+                self.points_table.insert(
+                    "",
+                    tk.END,
+                    values=(
+                        f"{elem_idx}",
+                        f"{val['x']:.4f}",
+                        f"{val['ux']:.6f}",
+                        f"{val['Nx']:.2f}",
+                        f"{val['sigma']:.2f}",
+                    )
+                )
 
     @staticmethod
     def _format_value(value):
@@ -341,8 +384,22 @@ class DiagramWindow(tk.Toplevel):
         scale_x = plot_width / total_length
 
         current_x = plot_left
+        # Палитра цветов для разных стержней
+        segment_colors = [
+            ("#1f77b4", "#aec7e8"),
+            ("#ff7f0e", "#ffbb78"),
+            ("#2ca02c", "#98df8a"),
+            ("#d62728", "#ff9896"),
+            ("#9467bd", "#c5b0d5"),
+            ("#8c564b", "#c49c94"),
+            ("#e377c2", "#f7b6d2"),
+            ("#7f7f7f", "#c7c7c7"),
+            ("#bcbd22", "#dbdb8d"),
+            ("#17becf", "#9edae5"),
+        ]
         all_points = []
         for idx_seg, seg in enumerate(self.segments):
+            line_color, fill_color = segment_colors[idx_seg % len(segment_colors)]
             pts = []
             for x_local, value in seg['points']:
                 x = current_x + x_local * scale_x
@@ -351,23 +408,25 @@ class DiagramWindow(tk.Toplevel):
                 all_points.append({'x': x, 'y': y, 'value': value})
             line_pts = [(x, y) for x, y, _ in pts]
             if len(line_pts) >= 2:
-                self.canvas.create_line(line_pts, fill="#08519c", width=3, smooth=True)
+                # Линия идёт по тем же точкам, что и заливка (без сглаживания),
+                # чтобы не было расхождения между кривой и заливкой при малом числе точек.
+                self.canvas.create_line(line_pts, fill=line_color, width=3)
                 for i in range(len(line_pts) - 1):
                     x1, y1 = line_pts[i]
                     x2, y2 = line_pts[i + 1]
                     self.canvas.create_polygon(
                         x1, zero_y, x1, y1, x2, y2, x2, zero_y,
-                        fill="#9ecae1", outline="", stipple="gray50"
+                        fill=fill_color, outline="", stipple="gray50"
                     )
 
             if pts:
                 x, y, value = pts[0]
-                self.canvas.create_oval(x - 3, y - 3, x + 3, y + 3, fill="#08519c", outline="")
+                self.canvas.create_oval(x - 3, y - 3, x + 3, y + 3, fill=line_color, outline="")
                 self._draw_point_label(x, y, value, plot_top, plot_bottom)
 
                 if len(pts) > 1:
                     x, y, value = pts[-1]
-                    self.canvas.create_oval(x - 3, y - 3, x + 3, y + 3, fill="#08519c", outline="")
+                    self.canvas.create_oval(x - 3, y - 3, x + 3, y + 3, fill=line_color, outline="")
                     self._draw_point_label(x, y, value, plot_top, plot_bottom)
             label_x = (line_pts[0][0] + line_pts[-1][0]) / 2 if line_pts else current_x
             self.canvas.create_text(label_x, plot_bottom + 12, text=f"e{seg['index']}", font=("Arial", 9, "bold"))
@@ -492,7 +551,11 @@ class PreprocessorApp:
         tk.Label(self.control_frame, textvariable=self.section_result_var, wraplength=240, bg=PASTEL_BG, justify=tk.LEFT).pack(fill=tk.X, pady=4)
 
         tk.Label(self.control_frame, text="Диаграммы", font=("Arial",11,"bold"), bg=PASTEL_BG).pack(pady=10)
-        RoundedButton(self.control_frame, "График ux", lambda: self.show_diagram('ux')).pack(fill=tk.X, pady=2)
+        tk.Label(self.control_frame, text="Точек на стержень:", bg=PASTEL_BG).pack(anchor=tk.W)
+        self.entry_diagram_points = ttk.Entry(self.control_frame, width=10)
+        self.entry_diagram_points.insert(0, "20")
+        self.entry_diagram_points.pack(anchor=tk.W, pady=(0, 4))
+        RoundedButton(self.control_frame, "Эпюра ux", lambda: self.show_diagram('ux')).pack(fill=tk.X, pady=2)
         RoundedButton(self.control_frame, "Эпюра Nx", lambda: self.show_diagram('Nx')).pack(fill=tk.X, pady=2)
         RoundedButton(self.control_frame, "Эпюра σx", lambda: self.show_diagram('sigma')).pack(fill=tk.X, pady=2)
 
@@ -533,16 +596,32 @@ class PreprocessorApp:
         style.configure("Treeview.Heading", font=("Arial", 10, "bold"), background=PASTEL_BUTTON, foreground="black")
 
         #Вкладки с табличками
-        self.tree_nodes = self._create_tree_tab("Узлы", ("X",), ("X",))
-        self.tree_elements = self._create_tree_tab("Стержни", ("nodes","L","A","E","sigma"), ("nodes","L","A","E","sigma"))
-        self.tree_q = self._create_tree_tab("Нагрузки q", ("nodes","q"), ("nodes","q"))
+        self.tree_nodes = self._create_tree_tab("Узлы", ("X",), ("X, м",))
+        self.tree_elements = self._create_tree_tab(
+            "Стержни",
+            ("nodes", "L", "A", "E", "sigma"),
+            ("Стержень", "L, м", "A, м²", "E, Па", "σдоп, Па")
+        )
+        self.tree_q = self._create_tree_tab(
+            "Нагрузки q",
+            ("nodes", "q"),
+            ("Стержень", "q, Н/м")
+        )
         self.tree_supports = self._create_tree_tab("Опоры", ("node",), ("Узел",))
-        self.tree_forces = self._create_tree_tab("Силы F", ("node","F"), ("node","F"))
-        self.tree_displacements = self._create_tree_tab("Перемещения", ("node","ux"), ("Узел","ux"))
+        self.tree_forces = self._create_tree_tab(
+            "Силы F",
+            ("node", "F"),
+            ("Узел", "F, Н")
+        )
+        self.tree_displacements = self._create_tree_tab(
+            "Перемещения",
+            ("node", "ux"),
+            ("Узел", "ux, м")
+        )
         self.tree_element_results = self._create_tree_tab(
-            "Результаты рассчетов",
+            "Результаты расчетов",
             ("element","Nx1","Nx2","sigma1","sigma2","u1","u2"),
-            ("Стержень","Nx1","Nx2","σx1","σx2","u1","u2")
+            ("Стержень","Nx1, Н","Nx2, Н","σx1, Па","σx2, Па","u1, м","u2, м")
         )
 
         analysis_frame = ttk.Frame(self.tab_control)
@@ -770,6 +849,14 @@ class PreprocessorApp:
             messagebox.showerror("Сечение", "Введите корректное значение x.")
             return
         element_result = self.results['element_results'][element_idx]
+        # Дополнительная проверка диапазона с указанием конкретной длины L выбранного стержня
+        L = element_result['length']
+        if not (0.0 <= xi <= L):
+            messagebox.showerror(
+                "Сечение",
+                f"Локальная координата должна быть в пределах [0, {L:.3f}] м для выбранного стержня."
+            )
+            return
         try:
             values = StructuralProcessor.evaluate_section(element_result, xi)
         except ValueError as exc:
@@ -781,17 +868,53 @@ class PreprocessorApp:
         if not self.results:
             messagebox.showwarning("Диаграмма", "Сначала выполните расчёт.")
             return
+        # Проверяем корректность введённого числа точек
+        try:
+            self._get_diagram_points_per_element(strict=True)
+        except ValueError:
+            return
+
         segments = self._build_diagram_segments(component)
         if not segments:
             messagebox.showwarning("Диаграмма", "Нет данных для построения.")
             return
         titles = {
-            'ux': ("График ux", "ux"),
+            'ux': ("Эпюра ux", "ux"),
             'Nx': ("Эпюра Nx", "Nx"),
             'sigma': ("Эпюра σx", "σx"),
         }
         title, ylabel = titles[component]
         DiagramWindow(self.root, segments, title, ylabel, component)
+
+    def _get_diagram_points_per_element(self, strict: bool = False):
+        """
+        Возвращает число точек на стержень, заданное пользователем.
+        strict=True — при некорректном вводе показывает ошибку и выбрасывает ValueError.
+        strict=False — тихо подставляет разумные значения (по умолчанию 20, минимум 2).
+        """
+        default_points = 20
+        if not hasattr(self, "entry_diagram_points"):
+            return default_points
+        text = self.entry_diagram_points.get().strip()
+        if not text:
+            if strict:
+                messagebox.showerror("Диаграммы", "Число точек на стержень должно быть целым числом ≥ 2.")
+                raise ValueError
+            return default_points
+        try:
+            value = int(text)
+        except ValueError:
+            if strict:
+                messagebox.showerror("Диаграммы", "Число точек на стержень должно быть целым числом ≥ 2.")
+                raise ValueError
+            return default_points
+
+        if value < 2:
+            if strict:
+                messagebox.showerror("Диаграммы", "Число точек на стержень должно быть не меньше 2.")
+                raise ValueError
+            return 2
+        return value
 
     def _build_diagram_segments(self, component):
         if not self.results:
@@ -802,37 +925,44 @@ class PreprocessorApp:
             sorted_elements = list(enumerate(self.elements))
 
         segments = []
+        num_points_plot = 20
+        num_points_table = self._get_diagram_points_per_element()
+
         for idx, _ in sorted_elements:
             if idx >= len(self.results['element_results']):
                 continue
             res = self.results['element_results'][idx]
             length = res['length']
             q_val = res['q']
-            if component == 'ux':
 
-                num_points = max(20, int(length * 10)) 
-                points = []
-                for i in range(num_points + 1):
-                    x_local = length * i / num_points
-                    values = StructuralProcessor.evaluate_section(res, x_local)
-                    points.append((x_local, values['ux']))
-            elif component == 'Nx':
+            plot_points = []
+            for i in range(num_points_plot):
+                x_local_plot = length * i / (num_points_plot - 1)
+                values_plot = StructuralProcessor.evaluate_section(res, x_local_plot)
+                if component == 'ux':
+                    plot_points.append((x_local_plot, values_plot['ux']))
+                elif component == 'Nx':
+                    plot_points.append((x_local_plot, values_plot['Nx']))
+                else:  # 'sigma'
+                    plot_points.append((x_local_plot, values_plot['sigma']))
 
-                num_points = max(10, int(length * 5))
-                points = []
-                for i in range(num_points + 1):
-                    x_local = length * i / num_points
-                    values = StructuralProcessor.evaluate_section(res, x_local)
-                    points.append((x_local, values['Nx']))
-            else: 
+            values_list = []
+            for i in range(num_points_table):
+                x_local_table = length * i / (num_points_table - 1)
+                values = StructuralProcessor.evaluate_section(res, x_local_table)
+                values_list.append({
+                    'x': x_local_table,
+                    'ux': values['ux'],
+                    'Nx': values['Nx'],
+                    'sigma': values['sigma'],
+                })
 
-                num_points = max(10, int(length * 5))
-                points = []
-                for i in range(num_points + 1):
-                    x_local = length * i / num_points
-                    values = StructuralProcessor.evaluate_section(res, x_local)
-                    points.append((x_local, values['sigma']))
-            segments.append({'index': res['index'], 'length': length, 'points': points})
+            segments.append({
+                'index': res['index'],
+                'length': length,
+                'points': plot_points,
+                'values': values_list,
+            })
         return segments
 
     def export_report(self):
@@ -924,7 +1054,12 @@ class PreprocessorApp:
         doc.add_heading("Отчёт по расчёту плоской стержневой системы", level=1)
         doc.add_paragraph(f"Дата: {report['timestamp']}")
 
-        self._add_docx_table(doc, "Узлы", ["Узел", "X, м"], [[str(i+1), f"{x:.3f}"] for i, x in enumerate(report['nodes'])])
+        self._add_docx_table(
+            doc,
+            "Узлы",
+            ["Узел", "X, м"],
+            [[str(i+1), f"{x:.3f}"] for i, x in enumerate(report['nodes'])]
+        )
 
         element_rows = []
         for idx, element in enumerate(report['elements'], start=1):
@@ -937,45 +1072,85 @@ class PreprocessorApp:
                 f"{element['E']}",
                 f"{element['sigma']}"
             ])
-        self._add_docx_table(doc, "Стержни", ["#", "Узлы", "L, м", "A", "E", "σдоп"], element_rows)
+        self._add_docx_table(
+            doc,
+            "Стержни",
+            ["#", "Узлы", "L, м", "A, м²", "E, Па", "σдоп, Па"],
+            element_rows
+        )
 
         if report['forces']:
-            self._add_docx_table(doc, "Силы", ["Узел", "F"], [[str(n), f"{value}"] for n, value in report['forces']])
+            self._add_docx_table(
+                doc,
+                "Силы",
+                ["Узел", "F, Н"],
+                [[str(n), f"{value}"] for n, value in report['forces']]
+            )
         if report['element_forces']:
             q_rows = []
             for idx, q in report['element_forces']:
                 n1, n2 = report['elements'][idx]['nodes']
                 q_rows.append([f"{idx+1} ({n1}-{n2})", f"{q}"])
-            self._add_docx_table(doc, "Распределённые нагрузки q", ["Стержень", "q"], q_rows)
+            self._add_docx_table(
+                doc,
+                "Распределённые нагрузки q",
+                ["Стержень", "q, Н/м"],
+                q_rows
+            )
 
         self._add_docx_table(
             doc,
             "Перемещения",
-            ["Узел", "ux"],
+            ["Узел", "ux, м"],
             [[str(i+1), f"{ux:.6f}"] for i, ux in enumerate(report['results']['displacements'])]
         )
 
         element_res_rows = []
         for res in report['results']['element_results']:
+            length = res['length']
+            q_val = res['q']
+
+            Nx1 = res['force'] + q_val * length / 2
+            Nx2 = res['force'] - q_val * length / 2
+
+            sigma1 = Nx1 / res['A']
+            sigma2 = Nx2 / res['A']
+
             element_res_rows.append([
                 f"{res['index']}",
                 f"{res['nodes'][0]}-{res['nodes'][1]}",
-                f"{res['force']:.2f}",
-                f"{res['stress']:.2f}",
+                f"{Nx1:.2f}",
+                f"{Nx2:.2f}",
                 f"{res['u1']:.6f}",
                 f"{res['u2']:.6f}",
+                f"{sigma1:.2f}",
+                f"{sigma2:.2f}",
             ])
-        self._add_docx_table(doc, "Результаты по стержням", ["#", "Узлы", "Nx", "σx", "u1", "u2"], element_res_rows)
+        self._add_docx_table(
+            doc,
+            "Результаты по стержням",
+            ["#", "Узлы", "Nx1, Н", "Nx2, Н", "ux1, м", "ux2, м", "σx1, Па", "σx2, Па"],
+            element_res_rows
+        )
 
         reactions = report['results'].get('reactions', [])
         if reactions:
-            self._add_docx_table(doc, "Реакции опор", ["Узел", "R"], [[str(node), f"{val:.2f}"] for node, val in reactions])
+            self._add_docx_table(
+                doc,
+                "Реакции опор",
+                ["Узел", "R, Н"],
+                [[str(node), f"{val:.2f}"] for node, val in reactions]
+            )
 
         warnings = report['results'].get('warnings', [])
         if warnings:
             doc.add_heading("Предупреждения", level=2)
             for warning in warnings:
                 doc.add_paragraph(warning, style='List Bullet')
+            doc.add_paragraph("Обнаружены превышения допускаемых напряжений. См. предупреждения выше.")
+        else:
+            doc.add_heading("Анализ напряжений", level=2)
+            doc.add_paragraph("Все напряжения в пределах допуска.")
 
         with tempfile.TemporaryDirectory(prefix="sapr_report_") as temp_dir:
             if plt and self.results:
@@ -986,15 +1161,42 @@ class PreprocessorApp:
                         doc.add_heading(title_map[comp], level=2)
                         doc.add_picture(img_path, width=Inches(5.5))
                         doc.add_paragraph(self._diagram_caption(comp))
-            doc.save(filepath)
+
+        # Принудительно делаем весь текст чёрным
+        if 'RGBColor' in globals():
+            from docx.enum.style import WD_STYLE_TYPE
+            # Заголовки и базовые стили
+            for style in doc.styles:
+                if style.type in (WD_STYLE_TYPE.PARAGRAPH, WD_STYLE_TYPE.CHARACTER):
+                    if style.font is not None and style.font.color is not None:
+                        style.font.color.rgb = RGBColor(0, 0, 0)
+
+            # Все параграфы и таблицы
+            for paragraph in doc.paragraphs:
+                for run in paragraph.runs:
+                    run.font.color.rgb = RGBColor(0, 0, 0)
+            for table in doc.tables:
+                for row in table.rows:
+                    for cell in row.cells:
+                        for paragraph in cell.paragraphs:
+                            for run in paragraph.runs:
+                                run.font.color.rgb = RGBColor(0, 0, 0)
+
+        doc.save(filepath)
 
     @staticmethod
     def _add_docx_table(doc, title, headers, rows):
         doc.add_heading(title, level=2)
         table = doc.add_table(rows=1, cols=len(headers))
+        table.style = 'Table Grid'
+
         hdr_cells = table.rows[0].cells
         for idx, header in enumerate(headers):
-            hdr_cells[idx].text = header
+            run = hdr_cells[idx].paragraphs[0].add_run(header)
+            if 'RGBColor' in globals():
+                run.font.color.rgb = RGBColor(0, 0, 0)
+            run.bold = True
+
         for row in rows:
             cells = table.add_row().cells
             for idx, value in enumerate(row):
@@ -1143,7 +1345,7 @@ class PreprocessorApp:
             combo_idx = self.combo_q_element.current()
             if combo_idx == -1:
                 raise ValueError
-            idx, _ = self.sorted_elements_for_combo[combo_idx]  # реальный индекс в self.elements
+            idx, _ = self.sorted_elements_for_combo[combo_idx]
             q_val = float(self.entry_q.get())
         except:
             messagebox.showerror("Ошибка","Некорректные данные")
